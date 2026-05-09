@@ -82,8 +82,13 @@
         };
 
         const App = () => {
-            const [folderUrl, setFolderUrl] = useState('');
-            const [gasUrl, setGasUrl] = useState(() => localStorage.getItem('gdrive_extractor_gas_url') || '');
+            // === 👇 請在這裡填入你的專屬網址 👇 ===
+            const MY_GAS_URL = "https://script.google.com/macros/s/AKfycbySM7KcWjAFlWd5jpsV9NmTz8EpTR5flF1FZRdlKp7gtIjZ8unlyzPH4IPF4uZ4nVO55Q/exec";
+            const MY_FOLDER_URL = "https://drive.google.com/drive/folders/1sbjyTaS2ldpy_uSmVP5DOGPFebyaDXMF?usp=drive_link";
+            // =====================================
+
+            const [folderUrl, setFolderUrl] = useState(MY_FOLDER_URL);
+            const [gasUrl, setGasUrl] = useState(MY_GAS_URL);
             const [files, setFiles] = useState([]);
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState(null);
@@ -91,10 +96,6 @@
             const [showSettings, setShowSettings] = useState(false);
             const [showInstructions, setShowInstructions] = useState(false);
             const [toast, setToast] = useState(null);
-
-            useEffect(() => {
-                localStorage.setItem('gdrive_extractor_gas_url', gasUrl);
-            }, [gasUrl]);
 
             // React 版的 Toast 提示系統
             const showMessage = useCallback((msg, type = 'success') => {
@@ -114,12 +115,12 @@
             const fetchImages = async () => {
                 const folderId = extractFolderId(folderUrl);
                 
-                if (!gasUrl) {
-                    setError('尚未設定 GAS 部署網址，請先點擊右上角設定按鈕。');
+                if (!gasUrl || gasUrl.includes('在這裡貼上')) {
+                    setError('尚未設定正確的 GAS 部署網址，請在程式碼中修改 MY_GAS_URL。');
                     setShowSettings(true);
                     return;
                 }
-                if (!folderId) {
+                if (!folderId || folderId.includes('在這裡貼上')) {
                     setError('請輸入有效的雲端資料夾連結');
                     return;
                 }
@@ -145,6 +146,15 @@
                     setLoading(false);
                 }
             };
+
+            // === 👇 新增：網頁載入時自動抓取圖片 👇 ===
+            useEffect(() => {
+                // 確認有填寫真實網址後，網頁一打開就自動執行抓取
+                if (!MY_GAS_URL.includes('在這裡貼上') && !MY_FOLDER_URL.includes('在這裡貼上')) {
+                    fetchImages();
+                }
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+            }, []);
 
             // 現代化複製功能，具備 Fallback 機制
             const copyToClipboard = async (text, id, successMsg = '已複製到剪貼簿！') => {
