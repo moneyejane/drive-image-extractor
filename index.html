@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Drive 圖片連結提取器 (進化版)</title>
+    <!-- 載入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 載入 React 相關 -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap');
+        
+        body { 
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            min-height: 100vh;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.04);
+        }
+
+        .icon-svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        
+        input:focus {
+            box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.15);
+        }
+
+        .image-card img {
+            transition: transform 0.5s ease;
+        }
+        
+        .image-card:hover img {
+            transform: scale(1.08);
+        }
+
+        .modal-overlay {
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(6px);
+        }
+
+        /* 圖片載入動畫 */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useCallback } = React;
+
+        // 圖示庫整合
+        const Icon = ({ name, className = "w-5 h-5" }) => {
+            const icons = {
+                image: <svg className={`${className} icon-svg`} viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>,
+                help: <svg className={`${className} icon-svg`} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
+                search: <svg className={`${className} icon-svg`} viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
+                alert: <svg className={`${className} icon-svg`} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+                globe: <svg className={`${className} icon-svg`} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>,
+                download: <svg className={`${className} icon-svg`} viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
+                external: <svg className={`${className} icon-svg`} viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>,
+                check: <svg className={`${className} icon-svg`} viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>,
+                copy: <svg className={`${className} icon-svg`} viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>,
+                settings: <svg className={`${className} icon-svg`} viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
+                x: <svg className={`${className} icon-svg`} viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+                play: <svg className={`${className} icon-svg`} viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            };
+            return icons[name] || null;
+        };
+
+        const App = () => {
+            const [folderUrl, setFolderUrl] = useState('');
+            const [gasUrl, setGasUrl] = useState(() => localStorage.getItem('gdrive_extractor_gas_url') || '');
+            const [files, setFiles] = useState([]);
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState(null);
+            const [copiedId, setCopiedId] = useState(null);
+            const [showSettings, setShowSettings] = useState(false);
+            const [showInstructions, setShowInstructions] = useState(false);
+            const [toast, setToast] = useState(null);
+
+            useEffect(() => {
+                localStorage.setItem('gdrive_extractor_gas_url', gasUrl);
+            }, [gasUrl]);
+
+            // React 版的 Toast 提示系統
+            const showMessage = useCallback((msg, type = 'success') => {
+                setToast({ msg, type });
+                setTimeout(() => setToast(null), 3000);
+            }, []);
+
+            // 優化正則表達式，支援 folder/ID 以及 ?id=ID 兩種格式
+            const extractFolderId = (url) => {
+                const match = url.match(/(?:folders\/|id=)([\w-]+)/);
+                return match ? match[1] : url.trim();
+            };
+
+            const getDownloadLink = (id) => `https://drive.google.com/uc?export=view&id=${id}`;
+            const getEmbedLink = (id) => `https://drive.google.com/thumbnail?id=${id}&sz=w1000`;
+
+            const fetchImages = async () => {
+                const folderId = extractFolderId(folderUrl);
+                
+                if (!gasUrl) {
+                    setError('尚未設定 GAS 部署網址，請先點擊右上角設定按鈕。');
+                    setShowSettings(true);
+                    return;
+                }
+                if (!folderId) {
+                    setError('請輸入有效的雲端資料夾連結');
+                    return;
+                }
+
+                setLoading(true);
+                setError(null);
+                setFiles([]);
+
+                try {
+                    const response = await fetch(`${gasUrl}?folderId=${folderId}`);
+                    const data = await response.json();
+                    
+                    if (data.status === 'error') throw new Error(data.message);
+                    if (!data.files || data.files.length === 0) {
+                        setError('找不到圖片檔案，請確認資料夾權限是否已設為「知道連結的使用者」。');
+                    } else {
+                        setFiles(data.files);
+                        showMessage(`成功抓取 ${data.files.length} 張圖片！`);
+                    }
+                } catch (err) {
+                    setError('抓取失敗：請檢查 GAS 網址是否正確，且已部署為「所有人」存取。');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            // 現代化複製功能，具備 Fallback 機制
+            const copyToClipboard = async (text, id, successMsg = '已複製到剪貼簿！') => {
+                try {
+                    if (navigator.clipboard && window.isSecureContext) {
+                        await navigator.clipboard.writeText(text);
+                    } else {
+                        // Fallback for non-HTTPS or older browsers
+                        const textArea = document.createElement("textarea");
+                        textArea.value = text;
+                        textArea.style.position = "fixed";
+                        textArea.style.left = "-9999px";
+                        document.body.appendChild(textArea);
+                        textArea.focus();
+                        textArea.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(textArea);
+                    }
+                    setCopiedId(id);
+                    showMessage(successMsg);
+                    setTimeout(() => setCopiedId(null), 2000);
+                } catch (err) {
+                    console.error('複製失敗:', err);
+                    showMessage('複製失敗，請手動複製', 'error');
+                }
+            };
+
+            const copyAllLinks = (type) => {
+                const allLinks = files.map(f => type === 'embed' ? getEmbedLink(f.id) : getDownloadLink(f.id)).join('\n');
+                copyToClipboard(allLinks, `all-${type}`, `已批次複製 ${files.length} 個連結！`);
+            };
+
+            // 內建產生動態相簿的功能 (取代原本缺失的 photo.js)
+            const generateAlbum = () => {
+                const links = files.map(f => getEmbedLink(f.id));
+                const albumHtml = `
+                    <!DOCTYPE html>
+                    <html lang="zh-TW">
+                    <head>
+                        <meta charset="UTF-8">
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                        <title>圖片相簿預覽</title>
+                        <style>
+                            body { margin: 0; background: #0f172a; display: flex; flex-direction: column; align-items: center; min-height: 100vh; padding: 20px; font-family: sans-serif; }
+                            .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; width: 100%; max-w-6xl; }
+                            img { width: 100%; height: 300px; object-fit: contain; background: #1e293b; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: transform 0.2s; }
+                            img:hover { transform: scale(1.02); cursor: pointer; }
+                            h1 { color: white; margin-bottom: 20px; }
+                        </style>
+                    </head>
+                    <body>
+                        <h1>共 ${links.length} 張圖片</h1>
+                        <div class="grid">
+                            ${links.map(link => `<a href="${link}" target="_blank"><img src="${link}" alt="image" loading="lazy"/></a>`).join('')}
+                        </div>
+                    </body>
+                    </html>
+                `;
+                const blob = new Blob([albumHtml], { type: 'text/html' });
+                const url = URL.createObjectURL(blob);
+                window.open(url, '_blank');
+            };
+
+            const gasScript = `function doGet(e) {
+  const folderId = e.parameter.folderId;
+  const folder = DriveApp.getFolderById(folderId);
+  const files = folder.getFiles();
+  const results = [];
+  while (files.hasNext()) {
+    const file = files.next();
+    const mime = file.getMimeType();
+    if (mime.includes('image/')) {
+      results.push({ id: file.getId(), name: file.getName(), mimeType: mime });
+    }
+  }
+  return ContentService.createTextOutput(JSON.stringify({status: 'success', files: results}))
+    .setMimeType(ContentService.MimeType.JSON);
+}`;
+
+            return (
+                <div className="py-12 px-4 max-w-5xl mx-auto relative min-h-screen flex flex-col">
+                    
+                    {/* Toast Notification */}
+                    {toast && (
+                        <div className={`fixed bottom-6 right-6 z-50 px-6 py-3 rounded-2xl shadow-xl font-bold text-sm transition-all animate-fade-in flex items-center gap-2 ${toast.type === 'error' ? 'bg-red-500 text-white' : 'bg-slate-800 text-white'}`}>
+                            <Icon name={toast.type === 'error' ? 'alert' : 'check'} className="w-4 h-4" />
+                            {toast.msg}
+                        </div>
+                    )}
+
+                    {/* Header Section */}
+                    <header className="mb-10 text-center relative">
+                        <div className="absolute right-0 top-0">
+                            <button 
+                                onClick={() => setShowSettings(true)}
+                                className="p-3 bg-white text-slate-500 hover:text-indigo-600 rounded-2xl shadow-sm border border-slate-200 transition-all active:scale-95"
+                                title="系統設定"
+                            >
+                                <Icon name="settings" className="w-6 h-6" />
+                            </button>
+                        </div>
+                        <div className="inline-flex p-3 bg-indigo-100 rounded-2xl mb-4 text-indigo-600">
+                            <Icon name="image" className="w-10 h-10" />
+                        </div>
+                        <h1 className="text-4xl font-extrabold text-slate-800 tracking-tight mb-3">Drive 圖片提取器</h1>
+                        <p className="text-slate-500 font-medium tracking-wide">快速取得雲端硬碟圖片的直接嵌入網址</p>
+                    </header>
+
+                    {/* Main Config Area */}
+                    <div className="glass-card rounded-[2rem] p-6 sm:p-10 mb-10 transition-all relative z-10">
+                        <div className="space-y-6">
+                            <div className="space-y-3">
+                                <label className="text-sm font-bold text-slate-700 uppercase tracking-widest flex items-center gap-2">
+                                    雲端資料夾連結
+                                    {!gasUrl && <span className="text-[10px] bg-red-100 text-red-600 px-2.5 py-0.5 rounded-full font-bold animate-pulse">需先設定 GAS</span>}
+                                </label>
+                                <input
+                                    type="text"
+                                    placeholder="貼上資料夾網址 (如: https://drive.google.com/drive/folders/...)"
+                                    className="w-full bg-white/60 border-2 border-slate-200 px-5 py-4 rounded-2xl text-slate-700 outline-none transition-all focus:border-indigo-500 focus:bg-white text-lg placeholder:text-slate-400"
+                                    value={folderUrl}
+                                    onChange={(e) => setFolderUrl(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && fetchImages()}
+                                />
+                            </div>
+
+                            <button
+                                onClick={fetchImages}
+                                disabled={loading}
+                                className={`w-full py-4 rounded-2xl font-bold text-white transition-all transform active:scale-95 shadow-xl flex items-center justify-center gap-2 ${loading ? 'bg-indigo-300 shadow-indigo-100' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200/50 hover:shadow-indigo-300/50'}`}
+                            >
+                                {loading ? (
+                                    <div className="w-6 h-6 border-4 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                ) : (
+                                    <React.Fragment><Icon name="search" className="w-5 h-5" /> 立即抓取圖片</React.Fragment>
+                                )}
+                            </button>
+                        </div>
+
+                        {error && (
+                            <div className="mt-6 p-4 bg-red-50 border border-red-200 text-red-600 rounded-2xl flex items-center gap-3 text-sm font-medium animate-fade-in">
+                                <Icon name="alert" className="shrink-0" /> {error}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Settings Modal */}
+                    {showSettings && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
+                            <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden animate-fade-in relative">
+                                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                        <Icon name="settings" className="w-5 h-5 text-indigo-500" /> 系統設置
+                                    </h3>
+                                    <button onClick={() => setShowSettings(false)} className="text-slate-400 hover:text-slate-600 p-1 bg-slate-100 rounded-full hover:bg-slate-200 transition-colors">
+                                        <Icon name="x" />
+                                    </button>
+                                </div>
+                                <div className="p-6 sm:p-8 space-y-6">
+                                    <div className="space-y-3">
+                                        <label className="text-sm font-bold text-slate-700 uppercase tracking-widest flex justify-between items-center">
+                                            GAS 部署網址
+                                            <button 
+                                                onClick={() => setShowInstructions(!showInstructions)}
+                                                className="text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md text-[11px] hover:bg-indigo-100 transition-colors"
+                                            >
+                                                {showInstructions ? '隱藏教學' : '如何取得？'}
+                                            </button>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            placeholder="https://script.google.com/macros/s/.../exec"
+                                            className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-slate-600 outline-none focus:border-indigo-500 focus:bg-white"
+                                            value={gasUrl}
+                                            onChange={(e) => setGasUrl(e.target.value)}
+                                        />
+                                        <p className="text-xs text-slate-400">設定將自動儲存於您的瀏覽器中。</p>
+                                    </div>
+
+                                    {showInstructions && (
+                                        <div className="p-5 bg-slate-800 rounded-2xl text-slate-300 text-xs border border-slate-700 animate-fade-in shadow-inner">
+                                            <p className="mb-3 text-white font-bold flex items-center gap-2"><Icon name="help" className="w-4 h-4 text-indigo-400"/> Google Apps Script 部署步驟：</p>
+                                            <ol className="list-decimal ml-5 space-y-2 mb-4 text-slate-300 leading-relaxed">
+                                                <li>前往 Google Drive 新建一個「Google Apps Script」專案。</li>
+                                                <li>貼上並覆蓋下方腳本程式碼。</li>
+                                                <li>點擊右上角「部署」>「新增部署作業」。</li>
+                                                <li>類型選擇「網頁應用程式」。</li>
+                                                <li><strong>誰有權存取</strong> 必須選擇 <strong>「所有人」</strong>。</li>
+                                                <li>複製生成的網址並貼到上方輸入框。</li>
+                                            </ol>
+                                            <div className="relative group">
+                                                <pre className="bg-slate-900 p-4 rounded-xl overflow-x-auto text-indigo-300 font-mono text-[11px] max-h-40 custom-scrollbar">{gasScript}</pre>
+                                                <button 
+                                                    onClick={() => copyToClipboard(gasScript, 'script', '腳本已複製！')}
+                                                    className="absolute top-2 right-2 p-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-all backdrop-blur-sm"
+                                                >
+                                                    <Icon name={copiedId === 'script' ? 'check' : 'copy'} className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <button 
+                                        onClick={() => setShowSettings(false)}
+                                        className="w-full py-3.5 bg-slate-800 text-white rounded-xl font-bold hover:bg-slate-900 transition-all shadow-lg shadow-slate-200"
+                                    >
+                                        完成並關閉
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Result Display */}
+                    {files.length > 0 && (
+                        <div className="space-y-6 flex-grow pb-10">
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white/50 p-4 rounded-2xl border border-slate-200/60 backdrop-blur-sm">
+                                <div className="text-left px-2">
+                                    <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                                        <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                                        成功解析 {files.length} 張圖片
+                                    </h2>
+                                </div>
+                                <div className="flex flex-wrap gap-2 w-full md:w-auto">
+                                    <button 
+                                        onClick={() => copyAllLinks('embed')} 
+                                        className="flex-1 md:flex-none px-4 py-2.5 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 shadow-md shadow-indigo-200 flex items-center justify-center gap-2 transition-all active:scale-95"
+                                    >
+                                        <Icon name={copiedId === 'all-embed' ? 'check' : 'globe'} className="w-4 h-4" /> 全部嵌入碼
+                                    </button>
+                                    <button
+                                        onClick={() => copyAllLinks('download')}
+                                        className="flex-1 md:flex-none px-4 py-2.5 bg-slate-700 text-white text-sm font-bold rounded-xl hover:bg-slate-800 shadow-md shadow-slate-200 flex items-center justify-center gap-2 transition-all active:scale-95"
+                                    >
+                                        <Icon name={copiedId === 'all-download' ? 'check' : 'download'} className="w-4 h-4" /> 全部下載連結
+                                    </button>
+                                    <button
+                                        onClick={generateAlbum}
+                                        className="flex-1 md:flex-none px-4 py-2.5 bg-emerald-600 text-white text-sm font-bold rounded-xl hover:bg-emerald-700 shadow-md shadow-emerald-200 flex items-center justify-center gap-2 transition-all active:scale-95"
+                                    >
+                                        <Icon name="play" className="w-4 h-4" /> 預覽相簿
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {files.map((file, index) => (
+                                    <div key={file.id} className="image-card bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden group hover:shadow-xl transition-all" style={{ animationDelay: `${index * 0.05}s` }}>
+                                        <div className="aspect-[4/3] bg-slate-100 relative overflow-hidden flex items-center justify-center">
+                                            <img 
+                                                src={getEmbedLink(file.id)} 
+                                                alt={file.name} 
+                                                className="w-full h-full object-cover" 
+                                                loading="lazy" 
+                                            />
+                                            <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
+                                                <a 
+                                                    href={getEmbedLink(file.id)} 
+                                                    target="_blank" 
+                                                    rel="noopener noreferrer"
+                                                    className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-slate-800 hover:text-indigo-600 hover:scale-110 transition-all shadow-lg"
+                                                    title="在新分頁開啟"
+                                                >
+                                                    <Icon name="external" />
+                                                </a>
+                                            </div>
+                                        </div>
+                                        <div className="p-4 bg-white relative z-10">
+                                            <h3 className="text-xs font-bold text-slate-700 truncate mb-3 px-1" title={file.name}>{file.name}</h3>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <button 
+                                                    onClick={() => copyToClipboard(getEmbedLink(file.id), `${file.id}-embed`, '已複製嵌入網址！')} 
+                                                    className={`py-2 px-2 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 border transition-all active:scale-95 ${copiedId === `${file.id}-embed` ? 'bg-green-50 border-green-200 text-green-600' : 'bg-indigo-50 border-indigo-100 text-indigo-700 hover:bg-indigo-100'}`}
+                                                >
+                                                    <Icon name={copiedId === `${file.id}-embed` ? 'check' : 'globe'} className="w-3.5 h-3.5" /> 嵌入網址
+                                                </button>
+                                                <button 
+                                                    onClick={() => copyToClipboard(getDownloadLink(file.id), `${file.id}-dl`, '已複製下載連結！')} 
+                                                    className={`py-2 px-2 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 border transition-all active:scale-95 ${copiedId === `${file.id}-dl` ? 'bg-green-50 border-green-200 text-green-600' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+                                                >
+                                                    <Icon name={copiedId === `${file.id}-dl` ? 'check' : 'download'} className="w-3.5 h-3.5" /> 下載連結
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Footer */}
+                    <footer className="mt-auto py-8 text-center">
+                        <div className="flex flex-col items-center gap-3 opacity-60 hover:opacity-100 transition-opacity">
+                            <p className="text-xs text-slate-500 font-medium">CC BY-NC-SA 姓名標示 - 非商業性 - 相同方式分享</p>
+                            <p className="text-[10px] text-slate-400 max-w-sm">
+                                註：此工具僅透過 GAS 提取圖片元數據，圖片本身仍儲存於您的 Google Drive。使用 Thumbnail API 確保外部顯示穩定。
+                            </p>
+                        </div>
+                    </footer>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
